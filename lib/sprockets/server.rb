@@ -19,18 +19,18 @@ module Sprockets
     #
     # A request for `"/assets/foo/bar.js"` will search your
     # environment for `"foo/bar.js"`.
-    def call(env)
+    def call(request, response)
       start_time = Time.now.to_f
       time_elapsed = lambda { ((Time.now.to_f - start_time) * 1000).to_i }
 
-      if env['REQUEST_METHOD'] != 'GET'
-        return method_not_allowed_response
+      unless request.get?
+        return method_not_allowed_response response
       end
 
-      msg = "Served asset #{env['PATH_INFO']} -"
+      msg = "Served asset #{request.path_info} -"
 
       # Extract the path from everything after the leading slash
-      path = Rack::Utils.unescape(env['PATH_INFO'].to_s.sub(/^\//, ''))
+      path = Rack::Utils.unescape(request.path_info.sub(/^\//, ''))
 
       # Strip fingerprint
       if fingerprint = path_fingerprint(path)
@@ -39,12 +39,12 @@ module Sprockets
 
       # URLs containing a `".."` are rejected for security reasons.
       if forbidden_request?(path)
-        return forbidden_response
+        return forbidden_response response
       end
 
       # Look up the asset.
       options = {}
-      options[:pipeline] = :self if body_only?(env)
+      options[:pipeline] = :self if body_only?(request)
 
       asset = find_asset(path, options)
 
@@ -57,12 +57,12 @@ module Sprockets
 
       if fingerprint
         if_match = fingerprint
-      elsif env['HTTP_IF_MATCH']
-        if_match = env['HTTP_IF_MATCH'][/^"(\w+)"$/, 1]
+      elsif request.get_header 'HTTP_IF_MATCH'
+        if_match = request.get_header('HTTP_IF_MATCH')[/^"(\w+)"$/, 1]
       end
 
-      if env['HTTP_IF_NONE_MATCH']
-        if_none_match = env['HTTP_IF_NONE_MATCH'][/^"(\w+)"$/, 1]
+      if request.get_header 'HTTP_IF_NONE_MATCH'
+        if_none_match = request.get_header('HTTP_IF_NONE_MATCH')[/^"(\w+)"$/, 1]
       end
 
       if asset.nil?
@@ -80,16 +80,16 @@ module Sprockets
       case status
       when :ok
         logger.info "#{msg} 200 OK (#{time_elapsed.call}ms)"
-        ok_response(asset, env)
+        ok_response(asset, request, response)
       when :not_modified
         logger.info "#{msg} 304 Not Modified (#{time_elapsed.call}ms)"
-        not_modified_response(env, if_none_match)
+        not_modified_response(request, response, if_none_match)
       when :not_found
         logger.info "#{msg} 404 Not Found (#{time_elapsed.call}ms)"
-        not_found_response
+        not_found_response(response)
       when :precondition_failed
         logger.info "#{msg} 412 Precondition Failed (#{time_elapsed.call}ms)"
-        precondition_failed_response
+        precondition_failed_response(response)
       end
     rescue Exception => e
       logger.error "Error compiling asset #{path}:"
@@ -103,7 +103,7 @@ module Sprockets
       when ".css"
         # Display CSS asset exceptions in the browser
         logger.info "#{msg} 500 Internal Server Error\n\n"
-        return css_exception_response(e)
+        return css_exception_response(response, e)
       else
         raise
       end
@@ -119,13 +119,18 @@ module Sprockets
       end
 
       # Returns a 200 OK response tuple
-      def ok_response(asset, env)
-        [ 200, headers(env, asset, asset.length), asset ]
+      def ok_response(asset, request, response)
+        response.status = 200
+        headers(request, response, asset, asset.length)
+        asset.each { |part| response.write part }
+        response.finish
       end
 
       # Returns a 304 Not Modified response tuple
-      def not_modified_response(env, etag)
-        [ 304, cache_headers(env, etag), [] ]
+      def not_modified_response(request, response, etag)
+        response.status = 304
+        cache_headers(request, response, etag)
+        response.finish
       end
 
       # Returns a 403 Forbidden response tuple
@@ -156,7 +161,7 @@ module Sprockets
 
       # Returns a CSS response that hides all elements on the page and
       # displays the exception
-      def css_exception_response(exception)
+      def css_exception_response(response, exception)
         message   = "\n#{exception.class.name}: #{exception.message}"
         backtrace = "\n  #{exception.backtrace.first}"
 
@@ -217,36 +222,32 @@ module Sprockets
       end
 
       # Test if `?body=1` or `body=true` query param is set
-      def body_only?(env)
-        env["QUERY_STRING"].to_s =~ /body=(1|t)/
+      def body_only?(request)
+        request.query_string =~ /body=(1|t)/
       end
 
-      def cache_headers(env, etag)
-        headers = {}
-
+      def cache_headers(request, response, etag)
         # Set caching headers
-        headers["Cache-Control"] = "public"
-        headers["ETag"]          = %("#{etag}")
+        cc = "public"
+        response.set_header "ETag", %("#{etag}")
 
         # If the request url contains a fingerprint, set a long
         # expires on the response
-        if path_fingerprint(env["PATH_INFO"])
-          headers["Cache-Control"] << ", max-age=31536000"
+        if path_fingerprint(request.path_info)
+          cc << ", max-age=31536000"
 
         # Otherwise set `must-revalidate` since the asset could be modified.
         else
-          headers["Cache-Control"] << ", must-revalidate"
-          headers["Vary"] = "Accept-Encoding"
+          cc << ", must-revalidate"
+          response.set_header "Vary", "Accept-Encoding"
         end
 
-        headers
+        response.set_header 'Cache-Control', cc
       end
 
-      def headers(env, asset, length)
-        headers = {}
-
+      def headers(request, response, asset, length)
         # Set content length header
-        headers["Content-Length"] = length.to_s
+        response.set_header 'Content-Length', length.to_s
 
         # Set content type header
         if type = asset.content_type
@@ -254,10 +255,11 @@ module Sprockets
           if type.start_with?("text/") && asset.charset
             type += "; charset=#{asset.charset}"
           end
-          headers["Content-Type"] = type
+
+          response.content_type = type
         end
 
-        headers.merge(cache_headers(env, asset.etag))
+        cache_headers(request, response, asset.etag)
       end
 
       # Gets ETag fingerprint.
