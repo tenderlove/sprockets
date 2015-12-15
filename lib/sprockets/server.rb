@@ -65,6 +65,9 @@ module Sprockets
         if_none_match = request.get_header('HTTP_IF_NONE_MATCH')[/^"(\w+)"$/, 1]
       end
 
+      # Look up the asset.
+      asset = find_asset(path)
+
       if asset.nil?
         status = :not_found
       elsif fingerprint && asset.etag != fingerprint

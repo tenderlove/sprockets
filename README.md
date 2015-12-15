@@ -20,6 +20,54 @@ Or include it in your project's `Gemfile` with Bundler:
 gem 'sprockets', '~> 3.0'
 ```
 
+## Using Sprockets
+
+For most people interested in using Sprockets you will want to see [End User Asset Generation](guides/end_user_asset_generation.md) guide. This contains information about sprocket's directive syntax, and default processing behavior.
+
+If you are a framework developer that is using Sprockets, see [Building an Asset Processing Framework](guides/building_an_asset_processing_framework.md).
+
+If you are a library developer who is extending the functionality of Sprockets, see [Extending Sprockets](guides/extending_sprockets.md).
+
+Below is a disjointed mix of documentation for all three of these roles. Eventually they will be moved to an appropriate guide, for now the recommended way to consume documentation is to view the appropriate guide first and then supplement with docs from the README.
+
+## Behavior
+
+### Index files are proxies for folders
+
+In Sprockets index files such as `index.js` or `index.css` files inside of a folder will generate a file with the folder's name. So if you have a `foo/index.js` file it will compile down to `foo.js`. This is similar to NPM's behavior of using [folders as modules](https://nodejs.org/api/modules.html#modules_folders_as_modules). It is also somewhat similar to the way that a file in `public/my_folder/index.html` can be reached by a request to `/my_folder`. This means that you cannot directly use an index file. For example this would not work:
+
+```
+<%= asset_path("foo/index.js") %>
+```
+
+Instead you would need to use:
+
+```
+<%= asset_path("foo.js") %>
+```
+
+Why would you want to use this behavior?  It is common behavior where you might want to include an entire directory of files in a top level javascript. You can do this in Sprockets using `require_tree .`
+
+```
+//= require_tree .
+```
+
+This has the problem that files are required alphabetically. If your directory has `jquery-ui.js` and `jquery.min.js` then Sprockets will require `jquery-ui.js` before `jquery` is required which won't work (because jquery-ui depends on jquery). Previously the only way to get the correct ordering would be to rename your files, something like `0-jquery-ui.js`. Instead of doing that you can use an index file.
+
+For example, if you have an `application.js` and want all the files in the `foo/` folder you could do this:
+
+```
+//= require foo.js
+```
+
+Then create a file `foo/index.js` that requires all the files in that folder in any order you want:
+
+```
+//= require foo.min.js
+//= require foo-ui.js
+```
+
+Now in your `application.js` will correctly load the `foo.min.js` before `foo-ui.js`. If you used `require_tree` it would not work correctly.
 
 ## Understanding the Sprockets Environment
 
@@ -143,9 +191,9 @@ get its length in bytes, `mtime` to query its last-modified time, and
 
 ## Using Processors
 
-Asset source files can be written in another format, like SCSS or
-CoffeeScript, and automatically compiled to CSS or JavaScript by
-Sprockets. Processors that convert a file from one format to another are called *transformers*.
+Asset source files can be written in another format, like SCSS or CoffeeScript,
+and automatically compiled to CSS or JavaScript by Sprockets. Processors that
+convert a file from one format to another are called *transformers*.
 
 ### Minifying Assets
 
@@ -155,6 +203,9 @@ Several JavaScript and CSS minifiers are available through shorthand.
 environment.js_compressor  = :uglify
 environment.css_compressor = :scss
 ```
+
+If you are using Sprockets directly with Rack app, don't forget to add
+`uglifier` and `sass` gems to your Gemfile when using above options.
 
 ### Styling with Sass and SCSS
 
@@ -171,7 +222,7 @@ new SCSS syntax, use the extension `.scss`.
 
 ### Scripting with CoffeeScript
 
-[CoffeeScript](http://jashkenas.github.com/coffee-script/) is a
+[CoffeeScript](http://jashkenas.github.io/coffeescript/) is a
 language that compiles to the "good parts" of JavaScript, featuring a
 cleaner syntax with array comprehensions, classes, and function
 binding.
@@ -366,11 +417,10 @@ recursively reading the file and following the directives found. This is automat
 
 #### The `stub` Directive
 
-`stub` *path* allows dependency to be excluded from the asset bundle.
+`stub` *path* excludes that asset and its dependencies from the asset bundle.
 The *path* must be a valid asset and may or may not already be part
 of the bundle. `stub` should only be used at the top level bundle, not
 within any subdependencies.
-
 
 ## Processor Interface
 
@@ -430,32 +480,16 @@ def self.call(input)
 end
 ```
 
+## Contributing to Sprockets
 
-## Development
+Sprockets is the work of hundreds of contributors. You're encouraged to submit pull requests, propose
+features and discuss issues.
 
-### Contributing
-
-The Sprockets source code is [hosted on
-GitHub](https://github.com/rails/sprockets). You can check out a
-copy of the latest code using Git:
-
-    $ git clone https://github.com/rails/sprockets
-
-If you've found a bug or have a question, please open an issue on the
-[Sprockets issue
-tracker](https://github.com/rails/sprockets/issues). Or, clone
-the Sprockets repository, write a failing test case, fix the bug and
-submit a pull request.
+See [CONTRIBUTING](CONTRIBUTING.md).
 
 ### Version History
 
 Please see the [CHANGELOG](https://github.com/rails/sprockets/tree/master/CHANGELOG.md)
 
 ## License
-
-Copyright &copy; 2014 Sam Stephenson <<sstephenson@gmail.com>>
-
-Copyright &copy; 2014 Joshua Peek <<josh@joshpeek.com>>
-
-Sprockets is distributed under an MIT-style license. See LICENSE for
-details.
+Sprockets is released under the [MIT License](MIT-LICENSE).

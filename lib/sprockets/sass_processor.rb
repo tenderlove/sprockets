@@ -1,5 +1,6 @@
 require 'rack/utils'
 require 'sprockets/autoload'
+require 'sprockets/source_map_utils'
 require 'uri'
 
 module Sprockets
@@ -39,13 +40,13 @@ module Sprockets
     # Public: Initialize template with custom options.
     #
     # options - Hash
-    #   cache_version - String custom cache version. Used to force a cache
-    #                   change after code changes are made to Sass Functions.
+    # cache_version - String custom cache version. Used to force a cache
+    #                 change after code changes are made to Sass Functions.
     #
     def initialize(options = {}, &block)
       @cache_version = options[:cache_version]
       @cache_key = "#{self.class.name}:#{VERSION}:#{Autoload::Sass::VERSION}:#{@cache_version}".freeze
-
+      @importer_class = options[:importer] || Sass::Importers::Filesystem
       @functions = Module.new do
         include Functions
         include options[:functions] if options[:functions]
@@ -59,8 +60,9 @@ module Sprockets
       options = {
         filename: input[:filename],
         syntax: self.class.syntax,
-        cache_store: CacheStore.new(input[:cache], @cache_version),
-        load_paths: input[:environment].paths,
+        cache_store: build_cache_store(input, @cache_version),
+        load_paths: context.environment.paths.map { |p| @importer_class.new(p.to_s) },
+        importer: @importer_class.new(Pathname.new(context.filename).to_s),
         sprockets: {
           context: context,
           environment: input[:environment],
@@ -70,9 +72,16 @@ module Sprockets
 
       engine = Autoload::Sass::Engine.new(input[:data], options)
 
-      css = Utils.module_include(Autoload::Sass::Script::Functions, @functions) do
-        engine.render
+      css, map = Utils.module_include(Autoload::Sass::Script::Functions, @functions) do
+        engine.render_with_sourcemap('')
       end
+
+      css = css.sub("\n/*# sourceMappingURL= */\n", '')
+
+      map = SourceMapUtils.combine_source_maps(
+        input[:metadata][:map],
+        SourceMapUtils.decode_json_source_map(map.to_json(css_uri: ''))["mappings"]
+      )
 
       # Track all imported files
       sass_dependencies = Set.new([input[:filename]])
@@ -81,8 +90,20 @@ module Sprockets
         context.metadata[:dependencies] << URIUtils.build_file_digest_uri(dependency.options[:filename])
       end
 
-      context.metadata.merge(data: css, sass_dependencies: sass_dependencies)
+      context.metadata.merge(data: css, sass_dependencies: sass_dependencies, map: map)
     end
+
+    # Public: Build the cache store to be used by the Sass engine.
+    #
+    # input - the input hash.
+    # version - the cache version.
+    #
+    # Override this method if you need to use a different cache than the
+    # Sprockets cache.
+    def build_cache_store(input, version)
+      CacheStore.new(input[:cache], version)
+    end
+    private :build_cache_store
 
     # Public: Functions injected into Sass context during Sprockets evaluation.
     #

@@ -35,7 +35,7 @@ module Sprockets
       if compressor.is_a?(Symbol)
         @css_compressor = klass = config[:compressors]['text/css'][compressor] || raise(Error, "unknown compressor: #{compressor}")
       elsif compressor.respond_to?(:compress)
-        klass = LegacyProcProcessor.new(:css_compressor, proc { |context, data| compressor.compress(data) })
+        klass = proc { |input| compressor.compress(input[:data]) }
         @css_compressor = :css_compressor
       else
         @css_compressor = klass = compressor
@@ -62,13 +62,33 @@ module Sprockets
       if compressor.is_a?(Symbol)
         @js_compressor = klass = config[:compressors]['application/javascript'][compressor] || raise(Error, "unknown compressor: #{compressor}")
       elsif compressor.respond_to?(:compress)
-        klass = LegacyProcProcessor.new(:js_compressor, proc { |context, data| compressor.compress(data) })
+        klass = proc { |input| compressor.compress(input[:data]) }
         @js_compressor = :js_compressor
       else
         @js_compressor = klass = compressor
       end
 
       register_bundle_processor 'application/javascript', klass
+    end
+
+    # Public: Checks if Gzip is enabled.
+    def gzip?
+      config[:gzip_enabled]
+    end
+
+    # Public: Checks if Gzip is disabled.
+    def skip_gzip?
+      !gzip?
+    end
+
+    # Public: Enable or disable the creation of Gzip files.
+    #
+    # Defaults to true.
+    #
+    #     environment.gzip = false
+    #
+    def gzip=(gzip)
+      self.config = config.merge(gzip_enabled: gzip).freeze
     end
   end
 end

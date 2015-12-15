@@ -55,9 +55,12 @@ module Sprockets
     # Returns an empty `Array` if the directory does not exist.
     def entries(path)
       if File.directory?(path)
-        Dir.entries(path, :encoding => Encoding.default_internal).reject! { |entry|
+        entries = Dir.entries(path, encoding: Encoding.default_internal)
+        entries.reject! { |entry|
           entry =~ /^\.|~$|^\#.*\#$/
-        }.sort!
+        }
+        entries.sort!
+        entries
       else
         []
       end
@@ -156,6 +159,33 @@ module Sprockets
         end
       end
       match
+    end
+
+    # Internal: Match paths in a directory against available extensions.
+    #
+    # path       - String directory
+    # basename   - String basename of target file
+    # extensions - Hash of String extnames to values
+    #
+    # Examples
+    #
+    #     exts = { ".js" => "application/javascript" }
+    #     find_matching_path_for_extensions("app/assets", "application", exts)
+    #     # => ["app/assets/application.js", "application/javascript"]
+    #
+    # Returns an Array of [String path, Object value] matches.
+    def find_matching_path_for_extensions(path, basename, extensions)
+      matches = []
+      entries(path).each do |entry|
+        extname, value = match_path_extname(entry, extensions)
+        if basename == entry.chomp(extname)
+          filename = File.join(path, entry)
+          if file?(filename)
+            matches << [filename, value]
+          end
+        end
+      end
+      matches
     end
 
     # Internal: Returns all parents for path
@@ -267,7 +297,7 @@ module Sprockets
         Thread.current.object_id,
         Process.pid,
         rand(1000000)
-      ].join('.')
+      ].join('.'.freeze)
       tmpname = File.join(dirname, basename)
 
       File.open(tmpname, 'wb+') do |f|

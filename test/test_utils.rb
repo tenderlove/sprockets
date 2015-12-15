@@ -66,17 +66,6 @@ class TestUtils < MiniTest::Test
     assert h.frozen?
     assert h[:foo].frozen?
     assert h[:foo][:bar].frozen?
-
-    h = hash_reassoc({foo: {bar: {baz: "biz".freeze}.freeze}.freeze}.freeze, :foo, :bar, :baz) do |value|
-      assert_equal "biz", value
-      refute value.frozen?
-      "foo"
-    end
-    assert_equal({foo: {bar: {baz: "foo"}}}, h)
-    assert h.frozen?
-    assert h[:foo].frozen?
-    assert h[:foo][:bar].frozen?
-    assert h[:foo][:bar][:baz].frozen?
   end
 
   def test_string_ends_with_semicolon
@@ -142,21 +131,23 @@ class TestUtils < MiniTest::Test
     m[4] = [1]
 
     assert_equal [
+      [0],
       [0, 1],
       [0, 1, 2],
       [0, 1, 2, 3],
       [0, 1, 2, 3, 4],
       [0, 1, 2, 3, 5]
-    ], dfs_paths([0]) { |n| m[n] }
+    ], dfs_paths([0]) { |n| m[n] || [] }
 
     assert_equal [
+      [1],
       [1, 2],
       [1, 2, 3],
       [1, 2, 3, 4],
       [1, 2, 3, 5]
-    ], dfs_paths([1]) { |n| m[n] }
+    ], dfs_paths([1]) { |n| m[n] || [] }
 
-    assert_equal [], dfs_paths([5]) { |n| m[n] }
+    assert_equal [[5]], dfs_paths([5]) { |n| m[n] || [] }
   end
 
   module Functions

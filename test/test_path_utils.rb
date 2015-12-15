@@ -31,8 +31,8 @@ class TestPathUtils < MiniTest::Test
       "default",
       "directives",
       "encoding",
-      "engines",
       "errors",
+      "index-assets",
       "manifest_utils",
       "octicons",
       "paths",
@@ -43,6 +43,12 @@ class TestPathUtils < MiniTest::Test
       "source-maps",
       "symlink"
     ], entries(File.expand_path("../fixtures", __FILE__))
+    
+    [ ['a', 'b'], ['a', 'b', '.', '..'] ].each do |dir_contents|
+      Dir.stub :entries, dir_contents do
+        assert_equal ['a', 'b'], entries(Dir.tmpdir)
+      end
+    end
 
     assert_equal [], entries("/tmp/sprockets/missingdir")
   end
@@ -166,6 +172,22 @@ class TestPathUtils < MiniTest::Test
     refute match_path_extname("jquery.map.css", extensions)
   end
 
+  def test_find_matching_path_for_extensions
+    dirname = File.expand_path("../fixtures/default", __FILE__)
+
+    extensions = { ".js" => "application/javascript", ".coffee" => "text/coffeescript" }
+    assert_equal [
+      ["#{dirname}/application.coffee", "text/coffeescript"]
+    ], find_matching_path_for_extensions(dirname, "application", extensions)
+
+    extensions = { ".txt" => "text/plain", ".jst.ejs" => "application/ejs" }
+    assert_equal [
+      ["#{dirname}/hello.jst.ejs", "application/ejs"],
+      ["#{dirname}/hello.txt", "text/plain"]
+    ], find_matching_path_for_extensions(dirname, "hello", extensions)
+
+  end
+
   def test_path_parents
     root = File.expand_path("../..", __FILE__)
 
@@ -230,7 +252,7 @@ class TestPathUtils < MiniTest::Test
       File.expand_path("../fixtures/asset/tree/all/b.css", __FILE__),
       File.expand_path("../fixtures/asset/tree/all/b.js.erb", __FILE__),
       File.expand_path("../fixtures/asset/tree/all/d", __FILE__),
-      File.expand_path("../fixtures/asset/tree/all/d/c.js.coffee", __FILE__),
+      File.expand_path("../fixtures/asset/tree/all/d/c.coffee", __FILE__),
       File.expand_path("../fixtures/asset/tree/all/d/e.js", __FILE__)
     ], files.map(&:first)
 
@@ -255,8 +277,8 @@ class TestPathUtils < MiniTest::Test
       File.expand_path("../fixtures/asset/tree/all/b/c/d.js", __FILE__),
       File.expand_path("../fixtures/asset/tree/all/b/c/e.js", __FILE__),
       File.expand_path("../fixtures/asset/tree/all/d", __FILE__),
-      File.expand_path("../fixtures/asset/tree/all/d/c.js.coffee", __FILE__),
-      File.expand_path("../fixtures/asset/tree/all/d/e.js", __FILE__),
+      File.expand_path("../fixtures/asset/tree/all/d/c.coffee", __FILE__),
+      File.expand_path("../fixtures/asset/tree/all/d/e.js", __FILE__)
     ], files.map(&:first)
 
     assert_equal [], stat_tree(File.expand_path("../fixtures/missing", __FILE__)).to_a

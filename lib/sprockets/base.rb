@@ -5,16 +5,19 @@ require 'sprockets/configuration'
 require 'sprockets/digest_utils'
 require 'sprockets/errors'
 require 'sprockets/loader'
-require 'sprockets/path_digest_utils'
 require 'sprockets/path_dependency_utils'
+require 'sprockets/path_digest_utils'
 require 'sprockets/path_utils'
 require 'sprockets/resolve'
 require 'sprockets/server'
+require 'sprockets/source_map_utils'
+require 'sprockets/loader'
+require 'sprockets/uri_tar'
 
 module Sprockets
   # `Base` class for `Environment` and `Cached`.
   class Base
-    include PathUtils, PathDependencyUtils, PathDigestUtils, DigestUtils
+    include PathUtils, PathDependencyUtils, PathDigestUtils, DigestUtils, SourceMapUtils
     include Configuration
     include Server
     include Resolve, Loader
@@ -48,26 +51,27 @@ module Sprockets
         # Caveat: Digests are cached by the path's current mtime. Its possible
         # for a files contents to have changed and its mtime to have been
         # negligently reset thus appearing as if the file hasn't changed on
-        # disk. Also, the mtime is only read to the nearest second. Its
+        # disk. Also, the mtime is only read to the nearest second. It's
         # also possible the file was updated more than once in a given second.
-        cache.fetch("file_digest:#{path}:#{stat.mtime.to_i}") do
+        key = UnloadedAsset.new(path, self).file_digest_key(stat.mtime.to_i)
+        cache.fetch(key) do
           self.stat_digest(path, stat)
         end
       end
     end
 
     # Find asset by logical path or expanded path.
-    def find_asset(path, options = {})
-      uri, _ = resolve(path, options.merge(compat: false))
+    def find_asset(*args)
+      uri, _ = resolve(*args)
       if uri
         load(uri)
       end
     end
 
-    def find_all_linked_assets(path, options = {})
-      return to_enum(__method__, path, options) unless block_given?
+    def find_all_linked_assets(*args)
+      return to_enum(__method__, *args) unless block_given?
 
-      asset = find_asset(path, options)
+      asset = find_asset(*args)
       return unless asset
 
       yield asset
@@ -94,6 +98,14 @@ module Sprockets
       "#<#{self.class}:0x#{object_id.to_s(16)} " +
         "root=#{root.to_s.inspect}, " +
         "paths=#{paths.inspect}>"
+    end
+
+    def compress_from_root(uri)
+      URITar.new(uri, self).compress
+    end
+
+    def expand_from_root(uri)
+      URITar.new(uri, self).expand
     end
   end
 end

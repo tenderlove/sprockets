@@ -45,7 +45,8 @@ module Sprockets
     # Similar to Hash#store for nested frozen hashes.
     #
     # hash  - Hash
-    # key   - Object keys. Use multiple keys for nested hashes.
+    # key_a - Object key. Use multiple keys for nested hashes.
+    # key_b - Object key. Use multiple keys for nested hashes.
     # block - Receives current value at key.
     #
     # Examples
@@ -56,13 +57,13 @@ module Sprockets
     #     end
     #
     # Returns duplicated frozen Hash.
-    def hash_reassoc(hash, *keys, &block)
-      if keys.size == 1
-        hash_reassoc1(hash, keys[0], &block)
-      else
-        hash_reassoc1(hash, keys[0]) do |value|
-          hash_reassoc(value, *keys[1..-1], &block)
+    def hash_reassoc(hash, key_a, key_b = nil, &block)
+      if key_b
+        hash_reassoc1(hash, key_a) do |value|
+          hash_reassoc(value, key_b, &block)
         end
+      else
+        hash_reassoc1(hash, key_a, &block)
       end
     end
 
@@ -102,34 +103,6 @@ module Sprockets
       buf << source
     end
 
-    # Internal: Prepends a leading "." to an extension if its missing.
-    #
-    #     normalize_extension("js")
-    #     # => ".js"
-    #
-    #     normalize_extension(".css")
-    #     # => ".css"
-    #
-    def normalize_extension(extension)
-      extension = extension.to_s
-      if extension[/^\./]
-        extension
-      else
-        ".#{extension}"
-      end
-    end
-
-    # Internal: Feature detect if UnboundMethods can #bind to any Object or
-    # just Objects that share the same super class.
-    # Basically if RUBY_VERSION >= 2.
-    UNBOUND_METHODS_BIND_TO_ANY_OBJECT = begin
-      foo = Module.new { def bar; end }
-      foo.instance_method(:bar).bind(Object.new)
-      true
-    rescue TypeError
-      false
-    end
-
     # Internal: Inject into target module for the duration of the block.
     #
     # mod - Module
@@ -140,10 +113,6 @@ module Sprockets
 
       mod.instance_methods.each do |sym|
         old_methods[sym] = base.instance_method(sym) if base.method_defined?(sym)
-      end
-
-      unless UNBOUND_METHODS_BIND_TO_ANY_OBJECT
-        base.send(:include, mod) unless base < mod
       end
 
       mod.instance_methods.each do |sym|
@@ -199,16 +168,16 @@ module Sprockets
     # Returns an Array of node Arrays.
     def dfs_paths(path)
       paths = []
-      stack, seen = [path], Set.new
+      stack = [path]
+      seen  = Set.new
 
       while path = stack.pop
-        if !seen.include?(path.last)
-          seen.add(path.last)
-          paths << path if path.size > 1
+        seen.add(path.last)
+        paths << path
 
-          Array(yield path.last).reverse_each do |node|
-            stack.push(path + [node])
-          end
+        children = yield path.last
+        children.reverse_each do |node|
+          stack.push(path + [node]) unless seen.include?(node)
         end
       end
 

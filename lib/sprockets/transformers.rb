@@ -18,6 +18,8 @@ module Sprockets
       config[:transformers]
     end
 
+    Transformer = Struct.new :from, :to, :proc
+
     # Public: Register a transformer from and to a mime type.
     #
     # from - String mime type
@@ -33,10 +35,30 @@ module Sprockets
     #
     # Returns nothing.
     def register_transformer(from, to, proc)
-      self.config = hash_reassoc(config, :registered_transformers, from) do |transformers|
-        transformers.merge(to => proc)
+      self.config = hash_reassoc(config, :registered_transformers) do |transformers|
+        transformers << Transformer.new(from, to, proc)
       end
-      compute_transformers!
+      compute_transformers!(self.config[:registered_transformers])
+    end
+
+    # Internal: Register transformer for existing type adding a suffix.
+    #
+    # types       - Array of existing mime type Strings
+    # type_format - String suffix formatting string
+    # extname     - String extension to append
+    # processor   - Callable block that accepts an input Hash.
+    #
+    # Returns nothing.
+    def register_transformer_suffix(types, type_format, extname, processor)
+      Array(types).each do |type|
+        extensions, charset = mime_types[type].values_at(:extensions, :charset)
+        parts = type.split('/')
+        suffix_type = type_format.sub('\1', parts[0]).sub('\2', parts[1])
+        extensions = extensions.map { |ext| "#{ext}#{extname}" }
+
+        register_mime_type(suffix_type, extensions: extensions, charset: charset)
+        register_transformer(suffix_type, type, processor)
+      end
     end
 
     # Internal: Resolve target mime type that the source type should be
@@ -89,53 +111,58 @@ module Sprockets
     # types - Array of mime type steps
     #
     # Returns Processor.
-    def compose_transformers(transformers, types)
+    def compose_transformers(transformers, types, preprocessors, postprocessors)
       if types.length < 2
         raise ArgumentError, "too few transform types: #{types.inspect}"
       end
 
-      i = 0
-      processors = []
-
-      loop do
-        src = types[i]
-        dst = types[i+1]
-        break unless src && dst
-
+      processors = types.each_cons(2).map { |src, dst|
         unless processor = transformers[src][dst]
           raise ArgumentError, "missing transformer for type: #{src} to #{dst}"
         end
-        processors.concat config[:postprocessors][src]
-        processors << processor
-        processors.concat config[:preprocessors][dst]
+        processor
+      }
 
-        i += 1
-      end
-
-      if processors.size > 1
-        compose_processors(*processors.reverse)
-      elsif processors.size == 1
-        processors.first
-      end
+      compose_transformer_list processors, preprocessors, postprocessors
     end
 
     private
-      def compute_transformers!
-        registered_transformers = self.config[:registered_transformers]
-        transformers = Hash.new { {} }
+      def compose_transformer_list(transformers, preprocessors, postprocessors)
+        processors = []
+
+        transformers.each do |processor|
+          processors.concat postprocessors[processor.from]
+          processors << processor.proc
+          processors.concat preprocessors[processor.to]
+        end
+
+        if processors.size > 1
+          compose_processors(*processors.reverse)
+        elsif processors.size == 1
+          processors.first
+        end
+      end
+
+      def compute_transformers!(registered_transformers)
+        preprocessors         = self.config[:preprocessors]
+        postprocessors        = self.config[:postprocessors]
+        transformers          = Hash.new { {} }
         inverted_transformers = Hash.new { Set.new }
+        incoming_edges        = registered_transformers.group_by(&:from)
 
-        registered_transformers.keys.flat_map do |key|
-          dfs_paths([key]) { |k| registered_transformers[k].keys }
-        end.each do |types|
-          src, dst = types.first, types.last
-          processor = compose_transformers(registered_transformers, types)
+        registered_transformers.each do |t|
+          traversals = dfs_paths([t]) { |k| incoming_edges.fetch(k.to, []) }
 
-          transformers[src] = {} unless transformers.key?(src)
-          transformers[src][dst] = processor
+          traversals.each do |nodes|
+            src, dst = nodes.first.from, nodes.last.to
+            processor = compose_transformer_list nodes, preprocessors, postprocessors
 
-          inverted_transformers[dst] = Set.new unless inverted_transformers.key?(dst)
-          inverted_transformers[dst] << src
+            transformers[src] = {} unless transformers.key?(src)
+            transformers[src][dst] = processor
+
+            inverted_transformers[dst] = Set.new unless inverted_transformers.key?(dst)
+            inverted_transformers[dst] << src
+          end
         end
 
         self.config = hash_reassoc(config, :transformers) { transformers }

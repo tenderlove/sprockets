@@ -51,18 +51,18 @@ module Sprockets
     end
     alias_method :depend_on, :add_dependency
 
-    # Internal: Resolve set of dependency URIs.
-    #
-    # Returns Array of resolved Objects.
-    def resolve_dependencies(uris)
-      uris.map { |uri| resolve_dependency(uri) }
-    end
-
     # Internal: Resolve dependency URIs.
     #
     # Returns resolved Object.
     def resolve_dependency(str)
-      scheme = str[/([^:]+)/, 1]
+      # Optimize for the most common scheme to
+      # save 22k allocations on an average Spree app.
+      scheme = if str.start_with?('file-digest:'.freeze)
+        'file-digest'.freeze
+      else
+        str[/([^:]+)/, 1]
+      end
+
       if resolver = config[:dependency_resolvers][scheme]
         resolver.call(self, str)
       else

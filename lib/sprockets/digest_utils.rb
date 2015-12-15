@@ -66,7 +66,7 @@ module Sprockets
         elsif klass == FalseClass
           digest << 'FalseClass'
         elsif klass == NilClass
-          digest << 'NilClass'
+          digest << 'NilClass'.freeze
         elsif klass == Array
           digest << 'Array'
           queue.concat(obj)
@@ -93,7 +93,7 @@ module Sprockets
     #
     # Returns hex String.
     def pack_hexdigest(bin)
-      bin.unpack('H*').first
+      bin.unpack('H*'.freeze).first
     end
 
     # Internal: Unpack a hex encoded digest string into binary bytes.
